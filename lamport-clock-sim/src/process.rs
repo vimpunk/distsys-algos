@@ -107,34 +107,38 @@ impl Process {
 
             self.handle_msg(msg);
 
-            if acquired_resource {
-                continue;
-            }
-
-            // after each message that is handled, check if the process has
-            // seen messages from all processes. we need to hear from all
-            // processes before we can act on a request--this is because the
-            // total ordering of the system of clocks is only complete when each
-            // process has seen all other process' timestamps. further, our
-            // request needs to be timestamped earlier than any other message
-            // we've heard from.
-            let other_msgs_newer_than_request = self.others.values().all(|p| {
-                if let Some(last_msg_ts) = p.last_msg_ts {
-                    last_msg_ts > req_ts.clock
-                } else {
-                    false
-                }
-            });
-            let our_request_is_earliest = self
-                .request_queue
-                .iter()
-                .filter(|r| **r != req_ts)
-                .all(|r| *r > req_ts);
-            if other_msgs_newer_than_request && our_request_is_earliest {
-                self.use_resource(req_ts).await;
-                acquired_resource = true;
+            if !acquired_resource {
+                acquired_resource = self.try_acquire_resource(req_ts).await;
                 // TODO: break from loop without breaking other processes
             }
+        }
+    }
+
+    async fn try_acquire_resource(&mut self, req_ts: Timestamp) -> bool {
+        // after each message that is handled, check if the process has
+        // seen messages from all processes. we need to hear from all
+        // processes before we can act on a request--this is because the
+        // total ordering of the system of clocks is only complete when each
+        // process has seen all other process' timestamps. further, our
+        // request needs to be timestamped earlier than any other message
+        // we've heard from.
+        let other_msgs_newer_than_request = self.others.values().all(|p| {
+            if let Some(last_msg_ts) = p.last_msg_ts {
+                last_msg_ts > req_ts.clock
+            } else {
+                false
+            }
+        });
+        let our_request_is_earliest = self
+            .request_queue
+            .iter()
+            .filter(|r| **r != req_ts)
+            .all(|r| *r > req_ts);
+        if other_msgs_newer_than_request && our_request_is_earliest {
+            self.use_resource(req_ts).await;
+            true
+        } else {
+            false
         }
     }
 

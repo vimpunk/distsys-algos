@@ -54,8 +54,8 @@ impl Clock {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp {
     // NOTE: order of fields here is important: we want the generated Ord and
-    // Part impls to first compare the clock and only consider the process if
-    // the clocks are the same
+    // PartialOrd impls to first compare the clock and only consider the process
+    // if the clocks are the same
     pub clock: Clock,
     pub process: ProcessId,
 }
