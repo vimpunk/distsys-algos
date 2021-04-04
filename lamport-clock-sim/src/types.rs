@@ -60,6 +60,15 @@ pub struct Timestamp {
     pub process: ProcessId,
 }
 
+impl Timestamp {
+    pub fn initial(process: ProcessId) -> Self {
+        Self {
+            clock: Default::default(),
+            process,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Op {
     Request,

@@ -1,13 +1,14 @@
-use self::{
-    process::Process,
-    types::{ProcessId, Resource},
-};
+use self::types::Resource;
 use rand::Rng;
 use std::{sync::Arc, time::Duration};
 
 mod process;
 mod types;
 
+// We're using the single threaded scheduler purely so that reading logs is
+// easier. The actual implementation is not dependent on this, as serializing
+// suspension points on a single thread can still lead to race conditions if the
+// algorithm is implemented incorrectly.
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     env_logger::init();
@@ -16,11 +17,7 @@ async fn main() {
     let process_count = 16;
 
     // initialize processes
-    log::info!("initializing {} processes", process_count);
-    let mut processes: Vec<_> = (0..process_count)
-        .map(|i| Process::new(ProcessId(i), Arc::clone(&resource)))
-        .collect();
-    process::distribute_senders(&mut processes);
+    let mut processes = process::new_swarm(process_count, &resource);
 
     // choose randomly among processes one that starts handling the data and let
     // everyone else know of this fact by inserting the initial request
@@ -38,7 +35,7 @@ async fn main() {
         }));
     }
 
-    // TODO: will never join
+    // FIXME: will never join
     for (i, t) in tasks.into_iter().enumerate() {
         if t.await.is_err() {
             log::error!("error joining on thread#{}", i);

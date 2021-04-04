@@ -8,7 +8,13 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-pub fn distribute_senders(processes: &mut [Process]) {
+pub fn new_swarm(process_count: usize, resource: &Arc<Resource>) -> Vec<Process> {
+    log::info!("initializing {} processes", process_count);
+    let mut processes: Vec<_> = (0..process_count)
+        .map(|i| Process::new(ProcessId(i), Arc::clone(&resource)))
+        .collect();
+
+    // distribute senders among processes
     for i in 0..processes.len() {
         let i_id = processes[i].id;
         let i_tx = processes[i].tx.clone();
@@ -19,15 +25,14 @@ pub fn distribute_senders(processes: &mut [Process]) {
             processes[k].clock.tick();
         }
     }
+
+    processes
 }
 
 pub fn choose_initial_resource_holder(processes: &mut [Process], mut rng: impl Rng) {
     let initial_res_holder = processes[rng.gen_range(0..processes.len())].id;
     log::info!("initial resource holder: {}", initial_res_holder);
-    let initial_request = Timestamp {
-        clock: Clock::default(),
-        process: initial_res_holder,
-    };
+    let initial_request = Timestamp::initial(initial_res_holder);
     for p in processes {
         p.request_queue.insert(initial_request);
     }
@@ -71,11 +76,11 @@ impl Process {
         let (tx, rx) = mpsc::unbounded_channel();
         Self {
             id,
-            clock: Clock::default(),
+            clock: Default::default(),
             tx,
             rx,
-            others: HashMap::new(),
-            request_queue: BTreeSet::new(),
+            others: Default::default(),
+            request_queue: Default::default(),
             resource,
         }
     }
@@ -90,10 +95,7 @@ impl Process {
 
         // send our request to all other processes if this is not the starting
         // process, in which case it will contain its own request in the queue
-        let req_ts = Timestamp {
-            clock: Clock::default(),
-            process: self.id,
-        };
+        let req_ts = Timestamp::initial(self.id);
         let (req_ts, mut acquired_resource) = if self.request_queue.contains(&req_ts) {
             self.use_resource(req_ts).await;
             (req_ts, true)
@@ -134,6 +136,7 @@ impl Process {
             .iter()
             .filter(|r| **r != req_ts)
             .all(|r| *r > req_ts);
+
         if other_msgs_newer_than_request && our_request_is_earliest {
             self.use_resource(req_ts).await;
             true
@@ -167,8 +170,8 @@ impl Process {
         // handle message
         match msg.op {
             Op::Request => {
-                // find the position in our queue according to which we need to order
-                // the events
+                // place the request in the position ordered by the request
+                // timestamp
                 self.request_queue.insert(msg.ts);
                 // need to send an ack that the request was received
                 self.send_msg(msg.ts.process, Op::Ack);
